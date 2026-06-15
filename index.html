@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>MeetWave — Telegram Dating Mini App</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root {
       color-scheme: light dark;
@@ -170,9 +171,9 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const KVDB_URL = "https://kvdb.io/zaman4ikpk_dating_app_2026";
+    const KVDB_URL = "https://kvdb.io/S9yv6z6c3N3ezWsCFcJMe9/server_url";
     let API_BASE_URL = "";
-    const DEFAULT_INIT_DATA = "";
+    let initData = "";
 
     const emojiList = ['🦊','🦁','🥷','👾','🐼','🐱','🧚','🧠'];
     const categories = ['Все', '🍿 Кино', '🌲 Пикник', '🚶 Прогулка'];
@@ -213,15 +214,24 @@
       document.getElementById('themeLabel').textContent = tg ? 'Telegram UI' : 'Classic UI';
     }
 
+    function initTelegram() {
+      const tg = window.Telegram && window.Telegram.WebApp;
+      if (tg) {
+        tg.ready();
+        tg.expand();
+        initData = tg.initData || "";
+      }
+    }
+
     async function initUI() {
+      initTelegram();
       setThemeLabel();
       renderEmojiPicker();
       renderFilters();
-      initMap();
-      bindTabs();
       bindEvents();
+      initMap();
       await resolveApiBaseUrl();
-      initUser();
+      await initUser();
     }
 
     function renderEmojiPicker() {
@@ -258,18 +268,22 @@
     }
 
     function initMap() {
-      map = L.map('map', { zoomControl: false, attributionControl: false }).setView([55.75, 37.62], 13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        detectRetina: true
-      }).addTo(map);
+      try {
+        map = L.map('map', { zoomControl: false, attributionControl: false }).setView([55.75, 37.62], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          detectRetina: true
+        }).addTo(map);
 
-      map.on('click', (e) => {
-        currentEvent = { lat: e.latlng.lat, lng: e.latlng.lng };
-        openModal();
-      });
+        map.on('click', (e) => {
+          currentEvent = { lat: e.latlng.lat, lng: e.latlng.lng };
+          openModal();
+        });
 
-      loadEvents();
+        loadEvents();
+      } catch (err) {
+        console.error('initMap error:', err);
+      }
     }
 
     async function loadEvents() {
@@ -279,11 +293,17 @@
       renderMarkers(res.data || []);
     }
 
+    function categoryValue(label) {
+      if (label === 'Все') return 'Все';
+      const idx = label.indexOf(' ');
+      return idx >= 0 ? label.slice(idx + 1).trim() : label;
+    }
+
     function renderMarkers(events) {
       markers.forEach(m => map.removeLayer(m));
       markers.length = 0;
       (events || []).forEach((ev) => {
-        if (currentFilter !== 'Все' && ev.event_type !== currentFilter.replace(/^[^\w]+|[^\w]+$/g, '').trim()) {
+        if (currentFilter !== 'Все' && ev.event_type !== categoryValue(currentFilter)) {
           return;
         }
         const marker = L.marker([ev.lat, ev.lng]).addTo(map);
@@ -326,6 +346,11 @@
     }
 
     function openModal() {
+      // if no marker selected, default to map center
+      if (!currentEvent && map) {
+        const c = map.getCenter();
+        currentEvent = { lat: c.lat, lng: c.lng };
+      }
       modalBg.classList.add('open');
       document.getElementById('chatLinkInput').value = 'https://t.me/';
       document.getElementById('descInput').focus();
@@ -336,6 +361,7 @@
     }
 
     function bindEvents() {
+      try {
       document.getElementById('openCreateBtn').addEventListener('click', () => { haptic('light'); openModal(); });
       document.getElementById('closeModalBtn').addEventListener('click', closeModal);
       document.getElementById('saveEventBtn').addEventListener('click', saveEvent);
@@ -343,6 +369,9 @@
       document.getElementById('saveProfileBtn').addEventListener('click', saveProfile);
       modalBg.addEventListener('click', (e) => { if (e.target === modalBg) closeModal(); });
       document.querySelectorAll('.nav-btn').forEach((btn) => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+      } catch (err) {
+        console.error('bindEvents error:', err);
+      }
     }
 
     function switchTab(tab) {
@@ -359,7 +388,7 @@
       if (!currentEvent || !description) return;
       haptic('medium');
       const res = await fetchJSON('/api/events/create', {
-        initData: DEFAULT_INIT_DATA,
+        initData: initData,
         event_type: eventType,
         description,
         time,
@@ -374,7 +403,7 @@
     }
 
     async function initUser() {
-      const res = await fetchJSON('/api/init', { initData: DEFAULT_INIT_DATA });
+      const res = await fetchJSON('/api/init', { initData: initData });
       if (res.ok && res.data) {
         currentUser = res.data;
         document.getElementById('name').value = res.data.name || 'Аноним';
@@ -390,7 +419,7 @@
       const interests = document.getElementById('interests').value.trim() || 'Интересы не указаны';
       const emoji = document.getElementById('emojiGrid').dataset.value || '🦊';
       haptic('light');
-      const res = await fetchJSON('/api/profile/save', { initData: DEFAULT_INIT_DATA, name, age, interests, emoji });
+      const res = await fetchJSON('/api/profile/save', { initData: initData, name, age, interests, emoji });
       document.getElementById('profileNotice').textContent = res.ok ? 'Профиль сохранён.' : (res.error || 'Не удалось сохранить');
     }
 
@@ -399,7 +428,7 @@
       btn.classList.add('active');
       searchStatus.textContent = 'Поиск в процессе...';
       haptic('medium');
-      const res = await fetchJSON('/api/search/start', { initData: DEFAULT_INIT_DATA });
+      const res = await fetchJSON('/api/search/start', { initData: initData });
       if (!res.ok) return;
       const data = res.data || {};
       if (data.status === 'waiting') {
@@ -414,7 +443,7 @@
     function startPolling() {
       clearInterval(searchTimer);
       searchTimer = setInterval(async () => {
-        const res = await fetchJSON('/api/search/status', { initData: DEFAULT_INIT_DATA });
+        const res = await fetchJSON('/api/search/status', { initData: initData });
         if (!res.ok) return;
         const data = res.data || {};
         if (data.status === 'waiting') {
@@ -445,7 +474,7 @@
 
     async function agreeMatch(match) {
       haptic('light');
-      const res = await fetchJSON('/api/match/agree', { initData: DEFAULT_INIT_DATA, match_id: match.id });
+      const res = await fetchJSON('/api/match/agree', { initData: initData, match_id: match.id });
       if (res.ok) {
         if (res.data && res.data.both_agreed) {
           matchPanel.innerHTML = `
@@ -460,32 +489,63 @@
       }
     }
 
+    function setConnectionStatus(text, ok) {
+      const el = document.getElementById('themeLabel');
+      if (el) {
+        el.textContent = text;
+        el.style.borderColor = ok ? 'rgba(52, 211, 153, 0.5)' : 'rgba(251, 113, 133, 0.5)';
+      }
+    }
+
     async function resolveApiBaseUrl() {
       if (API_BASE_URL) return API_BASE_URL;
       try {
         const response = await fetch(KVDB_URL, { cache: 'no-store' });
-        if (!response.ok) throw new Error('KVDB unavailable');
+        if (!response.ok) throw new Error('KVDB: сервер не найден (запустите Go-сервер)');
         const text = (await response.text()).trim();
         API_BASE_URL = text.replace(/\/$/, '');
         if (!/^https?:\/\//i.test(API_BASE_URL)) {
-          throw new Error('Invalid server URL');
+          throw new Error('KVDB: неверный URL сервера');
         }
+        setConnectionStatus('Сервер подключён', true);
       } catch (err) {
-        API_BASE_URL = 'https://your-server-url';
+        API_BASE_URL = window.location.origin.includes('github.io') ? '' : window.location.origin;
+        if (!API_BASE_URL) {
+          setConnectionStatus('Сервер offline', false);
+          console.warn('resolveApiBaseUrl:', err.message || err);
+        } else {
+          setConnectionStatus('Локальный сервер', true);
+        }
       }
       return API_BASE_URL;
     }
 
     async function fetchJSON(path, body) {
-      const base = await resolveApiBaseUrl();
-      return fetch(base + path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      }).then((r) => r.json());
+      try {
+        const base = await resolveApiBaseUrl();
+        if (!base) {
+          return { ok: false, error: 'Сервер не запущен. Запустите main.go и дождитесь публикации URL в KVDB.' };
+        }
+        const res = await fetch(base + path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const json = await res.json().catch(() => ({}));
+        return json;
+      } catch (err) {
+        console.error('fetchJSON error:', err);
+        return { ok: false, error: err && err.message ? err.message : String(err) };
+      }
     }
 
-    initUI();
+    window.addEventListener('load', () => {
+      try {
+        initUI();
+      } catch (err) {
+        console.error('initUI error:', err);
+      }
+    });
   </script>
 </body>
 </html>
