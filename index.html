@@ -171,7 +171,9 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
+    const NTFY_URL = "https://ntfy.sh/zaman4ikpk_dating_server/json?poll=1&since=none";
     const KVDB_URL = "https://kvdb.io/S9yv6z6c3N3ezWsCFcJMe9/server_url";
+    const GITHUB_URL = "https://raw.githubusercontent.com/zaman4ikpk/yestes/main/server_url.txt";
     let API_BASE_URL = "";
     let initData = "";
 
@@ -497,26 +499,75 @@
       }
     }
 
-    async function resolveApiBaseUrl() {
-      if (API_BASE_URL) return API_BASE_URL;
+    async function checkServerUrl(url) {
+      if (!url || !/^https?:\/\//i.test(url)) return false;
       try {
-        const response = await fetch(KVDB_URL, { cache: 'no-store' });
-        if (!response.ok) throw new Error('KVDB: сервер не найден (запустите Go-сервер)');
-        const text = (await response.text()).trim();
-        API_BASE_URL = text.replace(/\/$/, '');
-        if (!/^https?:\/\//i.test(API_BASE_URL)) {
-          throw new Error('KVDB: неверный URL сервера');
+        const res = await fetch(url.replace(/\/$/, '') + '/api/health', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        const json = await res.json().catch(() => ({}));
+        return res.ok && json.ok;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    async function resolveApiBaseUrl(force) {
+      if (API_BASE_URL && !force) return API_BASE_URL;
+
+      const sources = [
+        async () => {
+          const res = await fetch(NTFY_URL, { cache: 'no-store' });
+          if (!res.ok) throw new Error('ntfy unavailable');
+          const data = await res.json();
+          if (!Array.isArray(data) || data.length === 0) throw new Error('ntfy empty');
+          return data[data.length - 1].message.trim();
+        },
+        async () => {
+          const res = await fetch(KVDB_URL, { cache: 'no-store' });
+          if (!res.ok) throw new Error('kvdb unavailable');
+          return (await res.text()).trim();
+        },
+        async () => {
+          const res = await fetch(GITHUB_URL, { cache: 'no-store' });
+          if (!res.ok) throw new Error('github unavailable');
+          return (await res.text()).trim();
+        },
+        async () => {
+          const cached = localStorage.getItem('dating_api_url');
+          if (!cached) throw new Error('no cache');
+          return cached;
         }
-        setConnectionStatus('Сервер подключён', true);
-      } catch (err) {
-        API_BASE_URL = window.location.origin.includes('github.io') ? '' : window.location.origin;
-        if (!API_BASE_URL) {
-          setConnectionStatus('Сервер offline', false);
-          console.warn('resolveApiBaseUrl:', err.message || err);
-        } else {
-          setConnectionStatus('Локальный сервер', true);
+      ];
+
+      for (const source of sources) {
+        try {
+          const url = (await source()).replace(/\/$/, '');
+          if (!/^https?:\/\//i.test(url)) continue;
+          if (await checkServerUrl(url)) {
+            API_BASE_URL = url;
+            localStorage.setItem('dating_api_url', url);
+            setConnectionStatus('Сервер подключён', true);
+            return API_BASE_URL;
+          }
+        } catch (err) {
+          console.warn('resolveApiBaseUrl source failed:', err.message || err);
         }
       }
+
+      if (!window.location.origin.includes('github.io')) {
+        const local = window.location.origin;
+        if (await checkServerUrl(local)) {
+          API_BASE_URL = local;
+          setConnectionStatus('Локальный сервер', true);
+          return API_BASE_URL;
+        }
+      }
+
+      API_BASE_URL = '';
+      setConnectionStatus('Сервер offline', false);
       return API_BASE_URL;
     }
 
@@ -524,7 +575,7 @@
       try {
         const base = await resolveApiBaseUrl();
         if (!base) {
-          return { ok: false, error: 'Сервер не запущен. Запустите main.go и дождитесь публикации URL в KVDB.' };
+          return { ok: false, error: 'Сервер не запущен. Запустите main.go и дождитесь публикации URL.' };
         }
         const res = await fetch(base + path, {
           method: 'POST',
