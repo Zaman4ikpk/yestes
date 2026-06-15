@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>MeetWave — Telegram Dating Mini App</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      color-scheme: light dark;
+      --tg-theme-bg-color: #0f172a;
+      --tg-theme-secondary-bg-color: #111827;
+      --tg-theme-button-color: #7c3aed;
+      --tg-theme-button-text-color: #ffffff;
+      --tg-theme-text-color: #e5eefb;
+      --tg-theme-hint-color: #a5b4fc;
+      --surface: rgba(15, 23, 42, 0.92);
+      --surface-2: rgba(30, 41, 59, 0.92);
+      --card: rgba(17, 24, 39, 0.92);
+      --border: rgba(148, 163, 184, 0.18);
+      --accent: #8b5cf6;
+      --accent-2: #22d3ee;
+      --success: #34d399;
+      --danger: #fb7185;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.35);
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { width: 100%; height: 100%; margin: 0; background: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
+    body { overflow: hidden; }
+    .app { display: flex; flex-direction: column; height: 100vh; background: linear-gradient(180deg, var(--tg-theme-bg-color), var(--tg-theme-secondary-bg-color)); }
+    .topbar { padding: 12px 14px 0; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { display:flex; align-items:center; gap:10px; }
+    .brand-badge { width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display:grid; place-items:center; font-size: 18px; box-shadow: var(--shadow); }
+    .brand h1 { font-size: 16px; margin:0; }
+    .brand p { font-size: 11px; color: var(--tg-theme-hint-color); margin: 2px 0 0; }
+    .chip { border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--tg-theme-text-color); border-radius: 999px; padding: 6px 10px; font-size: 12px; }
+    .screen { flex: 1; display: none; padding: 8px 12px 88px; overflow: auto; }
+    .screen.active { display: block; }
+
+    .map-shell { position: relative; height: calc(100vh - 84px); border-radius: 24px; overflow: hidden; border: 1px solid var(--border); background: var(--card); box-shadow: var(--shadow); }
+    #map { width: 100%; height: 100%; }
+    .filter-row { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1000; display:flex; gap:8px; overflow-x:auto; padding-bottom: 4px; }
+    .filter-btn { flex: 0 0 auto; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--tg-theme-text-color); padding: 8px 12px; font-size: 12px; box-shadow: var(--shadow); }
+    .filter-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: white; border-color: transparent; }
+    .fab { position: absolute; right: 14px; bottom: 92px; z-index: 1000; width: 56px; height: 56px; border-radius: 50%; border:none; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; font-size: 24px; box-shadow: var(--shadow); }
+    .event-card { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 1000; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 12px; box-shadow: var(--shadow); display: none; }
+    .event-card.open { display: block; }
+    .event-card h3 { margin: 0 0 4px; font-size: 15px; }
+    .event-card p { margin: 4px 0 0; color: var(--tg-theme-hint-color); font-size: 12px; }
+    .actions { display:flex; gap:8px; margin-top: 10px; }
+    .btn { flex: 1; border-radius: 12px; border: none; padding: 10px 12px; font-weight: 700; font-size: 13px; } .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; }
+    .btn.ghost { background: rgba(255,255,255,0.04); color: var(--tg-theme-text-color); border: 1px solid var(--border); }
+
+    .search-card, .profile-card, .modal-card, .notice-card { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; box-shadow: var(--shadow); padding: 14px; margin-bottom: 12px; }
+    .search-card h2, .profile-card h2 { margin: 0 0 8px; font-size: 18px; }
+    .search-card p, .profile-card p { color: var(--tg-theme-hint-color); font-size: 12px; margin-top: 4px; }
+    .pulse-btn { width: 100%; border: none; border-radius: 22px; min-height: 72px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; font-size: 17px; font-weight: 800; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+    .pulse-btn::after { content:""; position:absolute; inset:-8px; border-radius:50%; border:2px solid rgba(255,255,255,0.35); animation: pulse 1.7s infinite; }
+    @keyframes pulse { 0% { transform: scale(0.92); opacity: 0.80;} 100% { transform: scale(1.18); opacity:0; } }
+    .pulse-btn.active { animation: pulseBtn 1s infinite alternate; }
+    @keyframes pulseBtn { from { transform: scale(1);} to { transform: scale(1.02);} }
+    .match-card { display:grid; gap:10px; }
+    .avatar-box { width: 64px; height: 64px; display:grid; place-items:center; font-size: 28px; border-radius: 18px; background: linear-gradient(135deg, rgba(139,92,246,0.18), rgba(34,211,238,0.18)); border:1px solid var(--border); }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .muted { color: var(--tg-theme-hint-color); font-size: 12px; }
+    label { display:block; font-size: 12px; color: var(--tg-theme-hint-color); margin-bottom: 4px; }
+    input, select, textarea { width:100%; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--tg-theme-text-color); padding: 10px 12px; font: inherit; }
+    textarea { min-height: 64px; resize: vertical; }
+    .emoji-grid { display:flex; flex-wrap: wrap; gap:8px; }
+    .emoji-chip { border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,0.04); padding: 8px 10px; font-size: 13px; }
+    .emoji-chip.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color:#fff; }
+
+    .nav { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 2000; display:flex; justify-content:space-between; gap:8px; padding: 8px; border-radius: 18px; background: rgba(15,23,42,0.96); border: 1px solid var(--border); box-shadow: var(--shadow); }
+    .nav-btn { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-height: 56px; border-radius: 14px; color: var(--tg-theme-text-color); background: transparent; border: none; font-size: 11px; }
+    .nav-btn.active { background: linear-gradient(135deg, rgba(139,92,246,0.16), rgba(34,211,238,0.16)); color: #fff; }
+
+    .modal-bg { position: fixed; inset: 0; background: rgba(2, 6, 23, 0.65); display: none; align-items: flex-end; justify-content:center; z-index: 3000; }
+    .modal-bg.open { display:flex; }
+    .modal-card { width: 100%; max-width: 520px; border-radius: 26px 26px 0 0; padding: 14px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
+    .modal-card h3 { margin: 0 0 6px; }
+
+    @media (min-width: 768px) {
+      .map-shell { height: calc(100vh - 96px); }
+      .screen { padding: 14px 18px 96px; }
+      .nav { left: 50%; transform: translateX(-50%); max-width: 520px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-badge">💘</div>
+        <div>
+          <h1>MeetWave</h1>
+          <p>Мини-приложение для знакомств</p>
+        </div>
+      </div>
+      <div class="chip" id="themeLabel">Telegram UI</div>
+    </header>
+
+    <section class="screen active" data-screen="map">
+      <div class="map-shell">
+        <div class="filter-row" id="filters"></div>
+        <div id="map"></div>
+        <button class="fab" id="openCreateBtn" aria-label="Создать мероприятие">+</button>
+        <div class="event-card" id="eventCard"></div>
+      </div>
+    </section>
+
+    <section class="screen" data-screen="search">
+      <div class="search-card">
+        <h2>Анонимный поиск</h2>
+        <p>Нажмите кнопку, чтобы войти в слепую очередь. Сервер подберет случайного собеседника и сообщит о мэтче без лишнего шума.</p>
+        <button class="pulse-btn" id="searchBtn">Найти собеседника</button>
+        <p id="searchStatus">Пока нет активного поиска.</p>
+      </div>
+      <div id="matchPanel" class="match-card"></div>
+    </section>
+
+    <section class="screen" data-screen="profile">
+      <div class="profile-card">
+        <h2>Мой профиль</h2>
+        <p>Заполните имя, возраст и интересы — они будут сохранены на сервере.</p>
+        <label for="name">Имя</label>
+        <input id="name" placeholder="Ваше имя" />
+        <label for="age">Возраст</label>
+        <input id="age" type="number" min="16" max="80" value="18" />
+        <label for="interests">Интересы</label>
+        <textarea id="interests" placeholder="Например: фильмы, прогулки, кофе"></textarea>
+        <label>Emoji-аватар</label>
+        <div class="emoji-grid" id="emojiGrid"></div>
+        <div class="actions" style="margin-top: 10px;">
+          <button class="btn primary" id="saveProfileBtn">Сохранить</button>
+        </div>
+      </div>
+      <div class="notice-card" id="profileNotice">Сохраните профиль, чтобы сервер знал ваш формат.</div>
+    </section>
+
+    <nav class="nav">
+      <button class="nav-btn active" data-tab="map">🗺️<span>Карта</span></button>
+      <button class="nav-btn" data-tab="search">🕵️<span>Поиск</span></button>
+      <button class="nav-btn" data-tab="profile">👤<span>Профиль</span></button>
+    </nav>
+  </div>
+
+  <div class="modal-bg" id="modalBg">
+    <div class="modal-card">
+      <h3>Создать мероприятие</h3>
+      <p class="muted">Добавьте точку на карту и поделитесь ссылкой на Telegram-группу.</p>
+      <label for="catSelect">Категория</label>
+      <select id="catSelect">
+        <option value="Кино">🍿 Кино</option>
+        <option value="Пикник">🌲 Пикник</option>
+        <option value="Прогулка">🚶 Прогулка</option>
+      </select>
+      <label for="descInput">Описание</label>
+      <textarea id="descInput" placeholder="Например: вечерний кинопикник..."></textarea>
+      <label for="timeInput">Время</label>
+      <input id="timeInput" type="text" placeholder="Сегодня, 19:30" />
+      <label for="chatLinkInput">Ссылка на Telegram-группу</label>
+      <input id="chatLinkInput" type="text" placeholder="https://t.me/your_group" />
+      <div class="actions" style="margin-top: 10px;">
+        <button class="btn ghost" id="closeModalBtn">Отмена</button>
+        <button class="btn primary" id="saveEventBtn">Добавить</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const API_BASE_URL = "https://your-server-url";
+    const DEFAULT_INIT_DATA = "";
+
+    const emojiList = ['🦊','🦁','🥷','👾','🐼','🐱','🧚','🧠'];
+    const categories = ['Все', '🍿 Кино', '🌲 Пикник', '🚶 Прогулка'];
+    const filtersEl = document.getElementById('filters');
+    const eventCard = document.getElementById('eventCard');
+    const mapEl = document.getElementById('map');
+    const modalBg = document.getElementById('modalBg');
+    const matchPanel = document.getElementById('matchPanel');
+    const searchStatus = document.getElementById('searchStatus');
+
+    let currentFilter = 'Все';
+    let currentMarker = null;
+    let currentEvent = null;
+    let searchTimer = null;
+    let map = null;
+    const markers = [];
+    let currentUser = null;
+
+    function haptic(name='medium') {
+      try {
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+          window.Telegram.WebApp.HapticFeedback.impactOccurred(name);
+        } else if (navigator.vibrate) {
+          navigator.vibrate(20);
+        }
+      } catch (e) {}
+    }
+
+    function setThemeLabel() {
+      const tg = window.Telegram && window.Telegram.WebApp;
+      if (tg) {
+        document.documentElement.style.setProperty('--tg-theme-bg-color', tg.themeParams.bg_color || '#0f172a');
+        document.documentElement.style.setProperty('--tg-theme-text-color', tg.themeParams.text_color || '#e5eefb');
+        document.documentElement.style.setProperty('--tg-theme-button-color', tg.themeParams.button_color || '#8b5cf6');
+        document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.themeParams.button_text_color || '#ffffff');
+        document.documentElement.style.setProperty('--tg-theme-hint-color', tg.themeParams.hint_color || '#a5b4fc');
+      }
+      document.getElementById('themeLabel').textContent = tg ? 'Telegram UI' : 'Classic UI';
+    }
+
+    function initUI() {
+      setThemeLabel();
+      renderEmojiPicker();
+      renderFilters();
+      initMap();
+      bindTabs();
+      bindEvents();
+      initUser();
+    }
+
+    function renderEmojiPicker() {
+      const grid = document.getElementById('emojiGrid');
+      grid.innerHTML = '';
+      emojiList.forEach((e, i) => {
+        const btn = document.createElement('button');
+        btn.type='button';
+        btn.className = 'emoji-chip' + (i === 0 ? ' active' : '');
+        btn.textContent = e;
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.emoji-chip').forEach(x => x.classList.remove('active'));
+          btn.classList.add('active');
+          document.getElementById('emojiGrid').dataset.value = e;
+        });
+        grid.appendChild(btn);
+      });
+    }
+
+    function renderFilters() {
+      filtersEl.innerHTML = '';
+      categories.forEach((c) => {
+        const btn = document.createElement('button');
+        btn.className = 'filter-btn' + (c === 'Все' ? ' active' : '');
+        btn.textContent = c;
+        btn.addEventListener('click', () => {
+          currentFilter = c;
+          document.querySelectorAll('.filter-btn').forEach(x => x.classList.remove('active'));
+          btn.classList.add('active');
+          applyFilter();
+        });
+        filtersEl.appendChild(btn);
+      });
+    }
+
+    function initMap() {
+      map = L.map('map', { zoomControl: false, attributionControl: false }).setView([55.75, 37.62], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        detectRetina: true
+      }).addTo(map);
+
+      map.on('click', (e) => {
+        currentEvent = { lat: e.latlng.lat, lng: e.latlng.lng };
+        openModal();
+      });
+
+      loadEvents();
+    }
+
+    function loadEvents() {
+      const center = map.getCenter();
+      fetchJSON('/api/events/list', { lat: center.lat, lng: center.lng }).then((res) => {
+        if (!res.ok) return;
+        renderMarkers(res.data || []);
+      });
+    }
+
+    function renderMarkers(events) {
+      markers.forEach(m => map.removeLayer(m));
+      markers.length = 0;
+      (events || []).forEach((ev) => {
+        if (currentFilter !== 'Все' && ev.event_type !== currentFilter.replace(/^[^\w]+|[^\w]+$/g, '').trim()) {
+          return;
+        }
+        const marker = L.marker([ev.lat, ev.lng]).addTo(map);
+        marker.bindPopup(`<b>${ev.event_type}</b><br>${ev.description}<br><small>${ev.time}</small>`);
+        marker.on('click', () => openEventCard(ev));
+        markers.push(marker);
+      });
+    }
+
+    function applyFilter() {
+      loadEvents();
+    }
+
+    function openEventCard(ev) {
+      currentEvent = ev;
+      eventCard.className = 'event-card open';
+      eventCard.innerHTML = `
+        <h3>${ev.event_type}</h3>
+        <p>${ev.description}</p>
+        <p>⏰ ${ev.time}</p>
+        <p>👤 ${ev.creator_name || 'Пользователь'} · ${ev.creator_emoji || '🧡'}</p>
+        <div class="actions">
+          <button class="btn primary" id="joinBtn">Пойти</button>
+          <button class="btn ghost" id="routeBtn">Маршрут</button>
+        </div>`;
+      document.getElementById('joinBtn').addEventListener('click', () => joinEvent(ev));
+      document.getElementById('routeBtn').addEventListener('click', () => {
+        window.open('https://yandex.ru', '_blank');
+      });
+    }
+
+    function joinEvent(ev) {
+      haptic('medium');
+      fetchJSON('/api/events/checkin', { event_id: ev.id }).then((res) => {
+        if (res.ok && res.data && res.data.link) {
+          window.open(res.data.link, '_blank');
+          eventCard.classList.remove('open');
+        }
+      });
+    }
+
+    function openModal() {
+      modalBg.classList.add('open');
+      document.getElementById('chatLinkInput').value = 'https://t.me/';
+      document.getElementById('descInput').focus();
+    }
+
+    function closeModal() {
+      modalBg.classList.remove('open');
+    }
+
+    function bindEvents() {
+      document.getElementById('openCreateBtn').addEventListener('click', () => { haptic('light'); openModal(); });
+      document.getElementById('closeModalBtn').addEventListener('click', closeModal);
+      document.getElementById('saveEventBtn').addEventListener('click', saveEvent);
+      document.getElementById('searchBtn').addEventListener('click', startSearch);
+      document.getElementById('saveProfileBtn').addEventListener('click', saveProfile);
+      modalBg.addEventListener('click', (e) => { if (e.target === modalBg) closeModal(); });
+      document.querySelectorAll('.nav-btn').forEach((btn) => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('active', s.dataset.screen === tab));
+      document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+      if (tab === 'map') loadEvents();
+    }
+
+    function saveEvent() {
+      const eventType = document.getElementById('catSelect').value;
+      const description = document.getElementById('descInput').value.trim();
+      const time = document.getElementById('timeInput').value.trim() || 'Сегодня';
+      const chatInvite = document.getElementById('chatLinkInput').value.trim() || 'https://t.me/anonymousmatchbot';
+      if (!currentEvent || !description) return;
+      haptic('medium');
+      fetchJSON('/api/events/create', {
+        initData: DEFAULT_INIT_DATA,
+        event_type: eventType,
+        description,
+        time,
+        lat: currentEvent.lat,
+        lng: currentEvent.lng,
+        chat_invite_link: chatInvite
+      }).then((res) => {
+        if (res.ok) {
+          closeModal();
+          loadEvents();
+        }
+      });
+    }
+
+    function initUser() {
+      fetchJSON('/api/init', { initData: DEFAULT_INIT_DATA }).then((res) => {
+        if (res.ok && res.data) {
+          currentUser = res.data;
+          document.getElementById('name').value = res.data.name || 'Аноним';
+          document.getElementById('age').value = res.data.age || 18;
+          document.getElementById('interests').value = res.data.interests || '';
+          document.getElementById('profileNotice').textContent = 'Профиль готов. Вы можете сохранить свои данные в любое время.';
+        }
+      });
+    }
+
+    function saveProfile() {
+      const name = document.getElementById('name').value.trim() || 'Аноним';
+      const age = Number(document.getElementById('age').value || 18);
+      const interests = document.getElementById('interests').value.trim() || 'Интересы не указаны';
+      const emoji = document.getElementById('emojiGrid').dataset.value || '🦊';
+      haptic('light');
+      fetchJSON('/api/profile/save', { initData: DEFAULT_INIT_DATA, name, age, interests, emoji }).then((res) => {
+        document.getElementById('profileNotice').textContent = res.ok ? 'Профиль сохранён.' : (res.error || 'Не удалось сохранить');
+      });
+    }
+
+    function startSearch() {
+      const btn = document.getElementById('searchBtn');
+      btn.classList.add('active');
+      searchStatus.textContent = 'Поиск в процессе...';
+      haptic('medium');
+      fetchJSON('/api/search/start', { initData: DEFAULT_INIT_DATA }).then((res) => {
+        if (!res.ok) return;
+        const data = res.data || {};
+        if (data.status === 'waiting') {
+          searchStatus.textContent = data.message || 'Ожидание собеседника...';
+          startPolling();
+        } else if (data.status === 'matched') {
+          searchStatus.textContent = data.message || 'Пара найдена.';
+          startPolling();
+        }
+      });
+    }
+
+    function startPolling() {
+      clearInterval(searchTimer);
+      searchTimer = setInterval(() => {
+        fetchJSON('/api/search/status', { initData: DEFAULT_INIT_DATA }).then((res) => {
+          if (!res.ok) return;
+          const data = res.data || {};
+          if (data.status === 'waiting') {
+            searchStatus.textContent = res.message || 'Ожидание собеседника...';
+            return;
+          }
+          renderMatchCard(data, res.message);
+          clearInterval(searchTimer);
+        });
+      }, 3000);
+    }
+
+    function renderMatchCard(match, message) {
+      const partner = match || {};
+      matchPanel.innerHTML = `
+        <div class="row">
+          <div>
+            <h3 style="margin: 0 0 4px; font-size: 16px;">Пара найдена</h3>
+            <div class="muted">${message || 'Собеседник уже рядом.'}</div>
+          </div>
+          <div class="avatar-box">${partner.partner_emoji || '🦊'}</div>
+        </div>
+        <div class="muted">Возраст: ${partner.partner_age || 18}</div>
+        <div class="muted">Интересы: ${partner.partner_interests || 'Слушает музыку'}</div>
+        <div class="muted">Имя: ${partner.partner_name || 'Аноним'}</div>
+        <button class="btn primary" id="openTelegramBtn">Открыть свой Telegram</button>`;
+      document.getElementById('openTelegramBtn').addEventListener('click', () => agreeMatch(match));
+    }
+
+    function agreeMatch(match) {
+      haptic('light');
+      fetchJSON('/api/match/agree', { initData: DEFAULT_INIT_DATA, match_id: match.id }).then((res) => {
+        if (res.ok) {
+          if (res.data && res.data.both_agreed) {
+            matchPanel.innerHTML = `
+              <div class="notice-card">
+                <h3 style="margin: 0 0 6px;">Поздравляем! 🎉</h3>
+                <p class="muted">Оба подтвердили открытие Telegram. Переходите в личные сообщения.</p>
+                <a class="btn primary" href="${res.data.chat_link || 'https://t.me/anonymousmatchbot'}" target="_blank" style="display:inline-block; text-decoration:none; text-align:center; margin-top: 8px;">Перейти в Telegram</a>
+              </div>`;
+          } else {
+            matchPanel.innerHTML = `<div class="notice-card"><h3 style="margin: 0 0 6px;">Вы согласились открыться</h3><p class="muted">Ожидание собеседника...</p></div>`;
+          }
+        }
+      });
+    }
+
+    function fetchJSON(path, body) {
+      return fetch(API_BASE_URL + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).then((r) => r.json());
+    }
+
+    initUI();
+  </script>
+</body>
+</html>
