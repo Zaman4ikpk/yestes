@@ -170,7 +170,8 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const API_BASE_URL = "https://your-server-url";
+    const KVDB_URL = "https://kvdb.io/zaman4ikpk_dating_app_2026";
+    let API_BASE_URL = "";
     const DEFAULT_INIT_DATA = "";
 
     const emojiList = ['🦊','🦁','🥷','👾','🐼','🐱','🧚','🧠'];
@@ -212,13 +213,14 @@
       document.getElementById('themeLabel').textContent = tg ? 'Telegram UI' : 'Classic UI';
     }
 
-    function initUI() {
+    async function initUI() {
       setThemeLabel();
       renderEmojiPicker();
       renderFilters();
       initMap();
       bindTabs();
       bindEvents();
+      await resolveApiBaseUrl();
       initUser();
     }
 
@@ -270,12 +272,11 @@
       loadEvents();
     }
 
-    function loadEvents() {
+    async function loadEvents() {
       const center = map.getCenter();
-      fetchJSON('/api/events/list', { lat: center.lat, lng: center.lng }).then((res) => {
-        if (!res.ok) return;
-        renderMarkers(res.data || []);
-      });
+      const res = await fetchJSON('/api/events/list', { lat: center.lat, lng: center.lng });
+      if (!res.ok) return;
+      renderMarkers(res.data || []);
     }
 
     function renderMarkers(events) {
@@ -350,14 +351,14 @@
       if (tab === 'map') loadEvents();
     }
 
-    function saveEvent() {
+    async function saveEvent() {
       const eventType = document.getElementById('catSelect').value;
       const description = document.getElementById('descInput').value.trim();
       const time = document.getElementById('timeInput').value.trim() || 'Сегодня';
       const chatInvite = document.getElementById('chatLinkInput').value.trim() || 'https://t.me/anonymousmatchbot';
       if (!currentEvent || !description) return;
       haptic('medium');
-      fetchJSON('/api/events/create', {
+      const res = await fetchJSON('/api/events/create', {
         initData: DEFAULT_INIT_DATA,
         event_type: eventType,
         description,
@@ -365,68 +366,63 @@
         lat: currentEvent.lat,
         lng: currentEvent.lng,
         chat_invite_link: chatInvite
-      }).then((res) => {
-        if (res.ok) {
-          closeModal();
-          loadEvents();
-        }
       });
+      if (res.ok) {
+        closeModal();
+        loadEvents();
+      }
     }
 
-    function initUser() {
-      fetchJSON('/api/init', { initData: DEFAULT_INIT_DATA }).then((res) => {
-        if (res.ok && res.data) {
-          currentUser = res.data;
-          document.getElementById('name').value = res.data.name || 'Аноним';
-          document.getElementById('age').value = res.data.age || 18;
-          document.getElementById('interests').value = res.data.interests || '';
-          document.getElementById('profileNotice').textContent = 'Профиль готов. Вы можете сохранить свои данные в любое время.';
-        }
-      });
+    async function initUser() {
+      const res = await fetchJSON('/api/init', { initData: DEFAULT_INIT_DATA });
+      if (res.ok && res.data) {
+        currentUser = res.data;
+        document.getElementById('name').value = res.data.name || 'Аноним';
+        document.getElementById('age').value = res.data.age || 18;
+        document.getElementById('interests').value = res.data.interests || '';
+        document.getElementById('profileNotice').textContent = 'Профиль готов. Вы можете сохранить свои данные в любое время.';
+      }
     }
 
-    function saveProfile() {
+    async function saveProfile() {
       const name = document.getElementById('name').value.trim() || 'Аноним';
       const age = Number(document.getElementById('age').value || 18);
       const interests = document.getElementById('interests').value.trim() || 'Интересы не указаны';
       const emoji = document.getElementById('emojiGrid').dataset.value || '🦊';
       haptic('light');
-      fetchJSON('/api/profile/save', { initData: DEFAULT_INIT_DATA, name, age, interests, emoji }).then((res) => {
-        document.getElementById('profileNotice').textContent = res.ok ? 'Профиль сохранён.' : (res.error || 'Не удалось сохранить');
-      });
+      const res = await fetchJSON('/api/profile/save', { initData: DEFAULT_INIT_DATA, name, age, interests, emoji });
+      document.getElementById('profileNotice').textContent = res.ok ? 'Профиль сохранён.' : (res.error || 'Не удалось сохранить');
     }
 
-    function startSearch() {
+    async function startSearch() {
       const btn = document.getElementById('searchBtn');
       btn.classList.add('active');
       searchStatus.textContent = 'Поиск в процессе...';
       haptic('medium');
-      fetchJSON('/api/search/start', { initData: DEFAULT_INIT_DATA }).then((res) => {
-        if (!res.ok) return;
-        const data = res.data || {};
-        if (data.status === 'waiting') {
-          searchStatus.textContent = data.message || 'Ожидание собеседника...';
-          startPolling();
-        } else if (data.status === 'matched') {
-          searchStatus.textContent = data.message || 'Пара найдена.';
-          startPolling();
-        }
-      });
+      const res = await fetchJSON('/api/search/start', { initData: DEFAULT_INIT_DATA });
+      if (!res.ok) return;
+      const data = res.data || {};
+      if (data.status === 'waiting') {
+        searchStatus.textContent = data.message || 'Ожидание собеседника...';
+        startPolling();
+      } else if (data.status === 'matched') {
+        searchStatus.textContent = data.message || 'Пара найдена.';
+        startPolling();
+      }
     }
 
     function startPolling() {
       clearInterval(searchTimer);
-      searchTimer = setInterval(() => {
-        fetchJSON('/api/search/status', { initData: DEFAULT_INIT_DATA }).then((res) => {
-          if (!res.ok) return;
-          const data = res.data || {};
-          if (data.status === 'waiting') {
-            searchStatus.textContent = res.message || 'Ожидание собеседника...';
-            return;
-          }
-          renderMatchCard(data, res.message);
-          clearInterval(searchTimer);
-        });
+      searchTimer = setInterval(async () => {
+        const res = await fetchJSON('/api/search/status', { initData: DEFAULT_INIT_DATA });
+        if (!res.ok) return;
+        const data = res.data || {};
+        if (data.status === 'waiting') {
+          searchStatus.textContent = res.message || 'Ожидание собеседника...';
+          return;
+        }
+        renderMatchCard(data, res.message);
+        clearInterval(searchTimer);
       }, 3000);
     }
 
@@ -447,26 +443,42 @@
       document.getElementById('openTelegramBtn').addEventListener('click', () => agreeMatch(match));
     }
 
-    function agreeMatch(match) {
+    async function agreeMatch(match) {
       haptic('light');
-      fetchJSON('/api/match/agree', { initData: DEFAULT_INIT_DATA, match_id: match.id }).then((res) => {
-        if (res.ok) {
-          if (res.data && res.data.both_agreed) {
-            matchPanel.innerHTML = `
-              <div class="notice-card">
-                <h3 style="margin: 0 0 6px;">Поздравляем! 🎉</h3>
-                <p class="muted">Оба подтвердили открытие Telegram. Переходите в личные сообщения.</p>
-                <a class="btn primary" href="${res.data.chat_link || 'https://t.me/anonymousmatchbot'}" target="_blank" style="display:inline-block; text-decoration:none; text-align:center; margin-top: 8px;">Перейти в Telegram</a>
-              </div>`;
-          } else {
-            matchPanel.innerHTML = `<div class="notice-card"><h3 style="margin: 0 0 6px;">Вы согласились открыться</h3><p class="muted">Ожидание собеседника...</p></div>`;
-          }
+      const res = await fetchJSON('/api/match/agree', { initData: DEFAULT_INIT_DATA, match_id: match.id });
+      if (res.ok) {
+        if (res.data && res.data.both_agreed) {
+          matchPanel.innerHTML = `
+            <div class="notice-card">
+              <h3 style="margin: 0 0 6px;">Поздравляем! 🎉</h3>
+              <p class="muted">Оба подтвердили открытие Telegram. Переходите в личные сообщения.</p>
+              <a class="btn primary" href="${res.data.chat_link || 'https://t.me/anonymousmatchbot'}" target="_blank" style="display:inline-block; text-decoration:none; text-align:center; margin-top: 8px;">Перейти в Telegram</a>
+            </div>`;
+        } else {
+          matchPanel.innerHTML = `<div class="notice-card"><h3 style="margin: 0 0 6px;">Вы согласились открыться</h3><p class="muted">Ожидание собеседника...</p></div>`;
         }
-      });
+      }
     }
 
-    function fetchJSON(path, body) {
-      return fetch(API_BASE_URL + path, {
+    async function resolveApiBaseUrl() {
+      if (API_BASE_URL) return API_BASE_URL;
+      try {
+        const response = await fetch(KVDB_URL, { cache: 'no-store' });
+        if (!response.ok) throw new Error('KVDB unavailable');
+        const text = (await response.text()).trim();
+        API_BASE_URL = text.replace(/\/$/, '');
+        if (!/^https?:\/\//i.test(API_BASE_URL)) {
+          throw new Error('Invalid server URL');
+        }
+      } catch (err) {
+        API_BASE_URL = 'https://your-server-url';
+      }
+      return API_BASE_URL;
+    }
+
+    async function fetchJSON(path, body) {
+      const base = await resolveApiBaseUrl();
+      return fetch(base + path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
